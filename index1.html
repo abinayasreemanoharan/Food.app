@@ -1,0 +1,264 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FoodBridge AI | Smart Food Network</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--bg:#0b1220;--panel:#121e30;--line:#26364b;--text:#eef5ff;--muted:#9cacc2;--green:#41d69a;--amber:#ffc46b;--red:#ff747c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px Arial,sans-serif}
+header{padding:22px 5%;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{font-size:23px;font-weight:bold}.brand span{color:var(--green)}
+header p{color:var(--muted);margin:6px 0 0}
+.wrap{max-width:1250px;margin:auto;padding:24px}
+h2,h3,p{margin-top:0}
+.muted,small{color:var(--muted)}
+button,input,select{font:inherit;border-radius:8px;padding:11px;border:1px solid var(--line)}
+button{background:var(--green);color:#092019;border:0;font-weight:bold;cursor:pointer}
+button.secondary{background:#26364b;color:white}
+input,select{background:#0c1727;color:white;max-width:100%}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+.panel,.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;min-width:0}
+.stat small{display:block}.stat strong{display:block;font-size:26px;margin:12px 0;color:var(--green)}
+.layout{display:grid;grid-template-columns:1.3fr 1fr;gap:16px}
+#map{height:390px;border-radius:10px;z-index:1}
+.foodlist{display:grid;gap:10px;margin-top:12px}
+.food{border:1px solid var(--line);padding:13px;border-radius:10px}
+.food h3{margin:0 0 8px}
+.tag{font-size:12px;padding:5px 8px;border-radius:20px;display:inline-block;margin:3px 0}
+.available{background:#143c30;color:#67e8b1}.limited{background:#49351c;color:#ffd08a}
+.sold{background:#49262e;color:#ff9ca3}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row input,.row select{flex:1;min-width:120px}
+.section{margin-top:18px}
+label{display:block;margin:10px 0 5px;color:var(--muted)}
+input,select{width:100%}
+form button{margin-top:12px}
+.result{background:#0b1726;padding:12px;border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:10px}
+.statusline{line-height:2;color:var(--green)}
+footer{text-align:center;padding:25px;color:var(--muted)}
+@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.wrap{padding:14px}#map{height:310px}}
+@media(max-width:420px){.cards{grid-template-columns:1fr 1fr}.stat{padding:12px}.stat strong{font-size:22px}}
+</style>
+</head>
+<body>
+<header>
+<div>
+<div class="brand">🥗 FoodBridge <span>AI</span></div>
+<p>Smart food availability · Mapping · Delivery · Trust</p>
+</div>
+<div class="row">
+<span class="tag available">● Demo dashboard</span>
+<button onclick="locate()">📍 My location</button>
+</div>
+</header>
+
+<main class="wrap">
+<h2>Community Food Dashboard</h2>
+<p class="muted">Discover food, check stock, contact providers and monitor demo deliveries.</p>
+
+<div class="cards">
+<div class="stat"><small>Food listings</small><strong id="total">4</strong><span class="muted">Sample records</span></div>
+<div class="stat"><small>Available</small><strong id="available">2</strong><span class="muted">Sample stock</span></div>
+<div class="stat"><small>Limited stock</small><strong id="limited">1</strong><span class="muted">Confirm first</span></div>
+<div class="stat"><small>Delivery demo</small><strong>Live*</strong><span class="muted">Simulated only</span></div>
+</div>
+
+<div class="layout">
+<section class="panel">
+<h2>📍 Food Location Map</h2>
+<p class="muted">Select a marker to view its sample listing.</p>
+<div id="map"></div>
+<p class="muted">Map © OpenStreetMap contributors</p>
+<button class="secondary" onclick="locate()">Use my current location</button>
+<div id="locmsg" class="result">Location not requested.</div>
+</section>
+
+<section class="panel">
+<h2>🍱 Food Availability</h2>
+<div class="row">
+<input id="search" placeholder="Search food or provider" oninput="renderFood()">
+<select id="filter" onchange="renderFood()">
+<option value="All">All stock</option>
+<option>Available</option>
+<option>Limited</option>
+<option>Sold Out</option>
+</select>
+</div>
+<div id="foodlist" class="foodlist"></div>
+</section>
+</div>
+
+<div class="layout section">
+<section class="panel">
+<h2>🚚 Delivery Tracking</h2>
+<p class="muted">Demo order FB101 · No real courier GPS connected.</p>
+<div class="statusline" id="trackstatus">● Order confirmed</div>
+<p id="eta">Demo ETA: 20 minutes</p>
+<button onclick="nextDelivery()">Update demo delivery</button>
+<button class="secondary" onclick="showRoute()">Show sample route</button>
+<div id="routeinfo" class="result">Route not started.</div>
+</section>
+
+<section class="panel">
+<h2>🛡️ Food Safety & Trust</h2>
+<p class="muted">Check the evidence entered by a provider. This is not official FSSAI verification.</p>
+<form id="safetyform">
+<label>Provider name</label><input id="provider" required placeholder="Restaurant name">
+<label>FSSAI licence / registration number</label><input id="licence" required placeholder="Enter claimed number">
+<label>Evidence checked</label>
+<select id="evidence">
+<option value="none">Not independently verified</option>
+<option value="document">Document uploaded only</option>
+<option value="official">Official record independently checked</option>
+</select>
+<label>Inspection date (if available)</label><input id="inspection" type="date">
+<label>Certificate expiry (if applicable)</label><input id="expiry" type="date">
+<label>Packaging status</label>
+<select id="pack">
+<option>Not checked</option><option>Intact</option><option>Open or damaged</option>
+</select>
+<button type="submit">Review evidence</button>
+</form>
+<div id="safetyresult" class="result">No evidence reviewed yet. No verified badge assigned.</div>
+</section>
+</div>
+
+<section class="panel section">
+<h2>➕ Add Food Listing</h2>
+<p class="muted">Adds a sample listing to this browser session. It does not publish stock to other users.</p>
+<form id="addform">
+<div class="row">
+<div style="flex:1"><label>Food / dish</label><input id="dish" required placeholder="e.g. Veg meal"></div>
+<div style="flex:1"><label>Provider</label><input id="restaurant" required placeholder="Restaurant name"></div>
+</div>
+<div class="row">
+<div style="flex:1"><label>Price (₹)</label><input id="price" type="number" min="0" required placeholder="0"></div>
+<div style="flex:1"><label>Quantity</label><input id="stock" type="number" min="0" required placeholder="10"></div>
+</div>
+<label>Opening hours</label><input id="hours" required placeholder="e.g. 10 AM – 6 PM">
+<label>Stock status</label>
+<select id="newstatus"><option>Available</option><option>Limited</option><option>Sold Out</option></select>
+<button type="submit">Add sample listing</button>
+</form>
+<div id="addmsg" class="result">New listings stay in this page session only.</div>
+</section>
+</main>
+
+<footer>FoodBridge AI · Hackathon prototype · Sample listings are not real-time offers.</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const food=[
+{id:1,name:"Community Veg Meals",provider:"Sample Community Kitchen",type:"Meals",price:50,stock:10,status:"Available",hours:"11 AM – 3 PM",lat:11.0168,lng:76.9558},
+{id:2,name:"Fresh Fruit Basket",provider:"Sample Fruit Store",type:"Fruits",price:80,stock:3,status:"Limited",hours:"9 AM – 7 PM",lat:11.0250,lng:76.9700},
+{id:3,name:"Sealed Food Packs",provider:"Sample Food Centre",type:"Packaged Food",price:40,stock:0,status:"Sold Out",hours:"10 AM – 6 PM",lat:11.0050,lng:76.9500},
+{id:4,name:"Idli & Sambar Pack",provider:"Sample Breakfast Point",type:"Meals",price:30,stock:12,status:"Available",hours:"7 AM – 11 AM",lat:11.0300,lng:76.9450}
+];
+let map,markers={},userMarker=null,userPos=null,deliveryStep=0,routeLine=null;
+function initMap(){
+ if(!window.L){document.getElementById("map").textContent="Map library could not load. Check internet and refresh.";return;}
+ map=L.map("map").setView([11.0168,76.9558],13);
+ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+ food.forEach(addMarker);
+}
+function addMarker(f){
+ if(!map)return;
+ const marker=L.marker([f.lat,f.lng]).addTo(map);
+ marker.bindPopup("<b>"+escapeHTML(f.name)+"</b><br>"+escapeHTML(f.status)+"<br>₹"+f.price+"<br>"+escapeHTML(f.hours));
+ marker.on("click",()=>{const el=document.getElementById("food-"+f.id);if(el)el.scrollIntoView({behavior:"smooth",block:"nearest"});});
+ markers[f.id]=marker;
+}
+function escapeHTML(s){
+ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function renderFood(){
+ const q=document.getElementById("search").value.toLowerCase();
+ const f=document.getElementById("filter").value;
+ const items=food.filter(x=>(x.name+" "+x.provider).toLowerCase().includes(q)&&(f==="All"||x.status===f));
+ document.getElementById("foodlist").innerHTML=items.map(x=>`
+ <article class="food" id="food-${x.id}">
+ <h3>${escapeHTML(x.name)}</h3>
+ <p class="muted">${escapeHTML(x.provider)}</p>
+ <span class="tag ${x.status==="Available"?"available":x.status==="Limited"?"limited":"sold"}">${escapeHTML(x.status)}</span>
+ <p>₹${x.price} · ${x.stock} units listed</p>
+ <p class="muted">Hours: ${escapeHTML(x.hours)}</p>
+ <div class="row">
+ <button onclick="focusFood(${x.id})">Show on map</button>
+ <button class="secondary" onclick="callProvider(${x.id})">Call provider</button>
+ <a href="https://www.google.com/maps/dir/?api=1&destination=${x.lat},${x.lng}" target="_blank" rel="noopener">Directions ↗</a>
+ </div>
+ <small>Sample data. Availability must be confirmed with provider.</small>
+ </article>`).join("")||"<p>No matching food listings.</p>";
+ document.getElementById("total").textContent=food.length;
+ document.getElementById("available").textContent=food.filter(x=>x.status==="Available").length;
+ document.getElementById("limited").textContent=food.filter(x=>x.status==="Limited").length;
+}
+function focusFood(id){const f=food.find(x=>x.id===id);if(map&&f){map.setView([f.lat,f.lng],15);markers[id].openPopup();}}
+function callProvider(id){
+ alert("Demo only: no verified phone number configured. Add the provider's consented, verified phone number to enable calling.");
+}
+function locate(){
+ const out=document.getElementById("locmsg");
+ if(!navigator.geolocation){out.textContent="This browser does not support location.";return;}
+ out.textContent="Requesting location permission...";
+ navigator.geolocation.getCurrentPosition(p=>{
+ userPos=[p.coords.latitude,p.coords.longitude];
+ if(userMarker)map.removeLayer(userMarker);
+ userMarker=L.marker(userPos).addTo(map).bindPopup("Your current location (only on this map)").openPopup();
+ map.setView(userPos,14);
+ out.textContent="Location found. Accuracy: approximately "+Math.round(p.coords.accuracy)+" metres.";
+ },e=>{out.textContent="Location unavailable. Allow browser location access and use HTTPS. Error: "+e.message;},{enableHighAccuracy:true,timeout:10000});
+}
+const stages=["Order confirmed","Preparing","Picked up","Delivered"];
+function nextDelivery(){
+ deliveryStep=(deliveryStep+1)%stages.length;
+ document.getElementById("trackstatus").textContent="● "+stages[deliveryStep]+" (DEMO)";
+ document.getElementById("eta").textContent=deliveryStep===3?"Demo delivery complete.": "Demo ETA: "+[20,15,8,0][deliveryStep]+" minutes";
+}
+function showRoute(){
+ if(!map){document.getElementById("routeinfo").textContent="Map unavailable.";return;}
+ const f=food[0];
+ const points=userPos?[userPos,[f.lat,f.lng]]:[[11.0100,76.9400],[f.lat,f.lng]];
+ if(routeLine)map.removeLayer(routeLine);
+ routeLine=L.polyline(points,{color:"#41d69a",weight:5,dashArray:"8 8"}).addTo(map);
+ map.fitBounds(routeLine.getBounds(),{padding:[25,25]});
+ document.getElementById("routeinfo").textContent="Illustrative straight-line route only. No road routing or live courier GPS connected.";
+}
+document.getElementById("addform").addEventListener("submit",e=>{
+ e.preventDefault();
+ const stock=Number(document.getElementById("stock").value);
+ const name=document.getElementById("dish").value.trim();
+ const provider=document.getElementById("restaurant").value.trim();
+ const status=stock===0?"Sold Out":document.getElementById("newstatus").value;
+ const f={id:Date.now(),name,provider,type:"Meals",price:Number(document.getElementById("price").value),stock,status,hours:document.getElementById("hours").value,lat:11.0168+(Math.random()-.5)*.02,lng:76.9558+(Math.random()-.5)*.02};
+ food.push(f);addMarker(f);renderFood();
+ document.getElementById("addmsg").textContent="Added for this session only: "+name+". It is not saved to a shared database.";
+ e.target.reset();
+});
+document.getElementById("safetyform").addEventListener("submit",e=>{
+ e.preventDefault();
+ const provider=document.getElementById("provider").value.trim();
+ const licence=document.getElementById("licence").value.trim();
+ const evidence=document.getElementById("evidence").value;
+ const inspection=document.getElementById("inspection").value;
+ const expiry=document.getElementById("expiry").value;
+ const pack=document.getElementById("pack").value;
+ const out=document.getElementById("safetyresult");
+ const expired=expiry&&new Date(expiry+"T23:59:59")<new Date();
+ let msg="Provider: "+provider+"\nLicence number claimed: "+licence+
+ "\nEvidence: "+({"none":"Not independently verified","document":"Document uploaded only","official":"Official record marked as independently checked"}[evidence])+
+ "\nInspection date: "+(inspection||"Not supplied")+
+ "\nCertificate expiry: "+(expiry||"Not supplied")+
+ "\nPackaging: "+pack+"\n\n";
+ if(expired||pack==="Open or damaged")msg+="WARNING: Expired evidence or damaged packaging requires further review. Do not treat this listing as approved.";
+ else msg+="No automatic verification was performed. A document or entered number alone does not prove licence validity or food safety. Verify the official record and inspect food handling before assigning any trust badge.";
+ out.textContent=msg;
+});
+initMap();renderFood();
+</script>
+</body>
+</html>
